@@ -1,0 +1,51 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_USER    = 'harish230504'
+        BACKEND_IMAGE  = "${DOCKER_USER}/employee-backend"
+        FRONTEND_IMAGE = "${DOCKER_USER}/employee-frontend"
+        TAG            = "v${BUILD_NUMBER}"
+    }
+
+    stages {
+        stage('Build') {
+            steps {
+                dir('backend')  { bat 'mvn clean package -DskipTests' }
+                dir('frontend') { bat 'npm install' }
+            }
+        }
+
+        stage('Test') {
+            steps {
+                dir('backend') { bat 'mvn test' }
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                bat "docker build -t %BACKEND_IMAGE%:%TAG% backend"
+                bat "docker build -t %FRONTEND_IMAGE%:%TAG% frontend"
+            }
+        }
+
+        stage('Docker Push') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds',
+                                 usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
+                    bat 'echo %DH_PASS%| docker login -u %DH_USER% --password-stdin'
+                    bat "docker push %BACKEND_IMAGE%:%TAG%"
+                    bat "docker push %FRONTEND_IMAGE%:%TAG%"
+                }
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                bat 'kubectl apply -f k8s/'
+                bat "kubectl set image deployment/employee-backend employee-backend=%BACKEND_IMAGE%:%TAG%"
+                bat "kubectl set image deployment/employee-frontend employee-frontend=%FRONTEND_IMAGE%:%TAG%"
+            }
+        }
+    }
+}
